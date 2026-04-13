@@ -27,7 +27,7 @@ class MessageMiddlewareQueueRabbitMQ(MessageMiddlewareQueue):
             raise(MessageMiddlewareMessageError)
     
     def close(self):
-        try: 
+        try:
             self.connection.close()
         except:
             raise(MessageMiddlewareCloseError)

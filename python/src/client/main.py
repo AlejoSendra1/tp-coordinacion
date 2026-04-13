@@ -3,6 +3,7 @@ import logging
 import csv
 import socket
 import signal
+import time
 
 from common import message_protocol
 
@@ -74,6 +75,7 @@ def main() -> int:
     client = Client()
 
     try:
+        time.sleep(5)
         client.connect(SERVER_HOST, SERVER_PORT)
         client.send_fruit_records(INPUT_FILE)
         client.recv_fruit_top(OUTPUT_FILE)

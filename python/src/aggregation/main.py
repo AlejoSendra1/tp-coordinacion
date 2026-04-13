@@ -46,7 +46,7 @@ class AggregationFilter:
             )
         )
         self.output_queue.send(message_protocol.internal.serialize(fruit_top))
-        del self.fruit_top
+        self.fruit_top # que onda esto..................
 
     def process_messsage(self, message, ack, nack):
         logging.info("Process message")
