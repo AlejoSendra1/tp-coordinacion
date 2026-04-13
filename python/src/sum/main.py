@@ -24,34 +24,47 @@ class SumFilter:
                 MOM_HOST, AGGREGATION_PREFIX, [f"{AGGREGATION_PREFIX}_{i}"]
             )
             self.data_output_exchanges.append(data_output_exchange)
-        self.amount_by_fruit = {}
+        self.amount_by_fruit = dict()
 
     def _process_data(self, client_id, fruit, amount):
         logging.info(f"Process data")
-        self.setdefault(client_id, dict())
+        self.amount_by_fruit.setdefault(client_id, dict())
         self.amount_by_fruit[client_id][fruit] = self.amount_by_fruit.get(
             fruit, fruit_item.FruitItem(fruit, 0)
         ) + fruit_item.FruitItem(fruit, int(amount))
 
-    def _process_eof(client_id, self):
+        logging.info(f"amount agregada al cliente: {client_id} estado actual de {fruit}: {self.amount_by_fruit[client_id][fruit].amount} ")    
+
+
+    def _process_eof(self, client_id):
         logging.info(f"Broadcasting data messages")
+        self.amount_by_fruit.setdefault(client_id, dict())
         for final_fruit_item in self.amount_by_fruit[client_id].values():
             for data_output_exchange in self.data_output_exchanges:
                 data_output_exchange.send(
-                    message_protocol.internal.serialize(
+                    message_protocol.internal.serialize_fruit_register_message(
+                        client_id,
                         [final_fruit_item.fruit, final_fruit_item.amount]
                     )
                 )
         logging.info(f"Broadcasting EOF message")
         for data_output_exchange in self.data_output_exchanges:
-            data_output_exchange.send(message_protocol.internal.serialize([]))
+            data_output_exchange.send(message_protocol.internal.serialize_eof_message(client_id))
+        
+        del self.amount_by_fruit[client_id] # verificar sintaxis
 
     def process_data_messsage(self, message, ack, nack):
-        msg_contents = message_protocol.internal.deserialize(message)
-        if message[message_protocol.internal.MsgField.MSG_TYPE] == message_protocol.internal.MsgType.FRUIT_RECORD:
-            self._process_data(msg_contents[message_protocol.internal.MsgField.CLIENT_ID],*msg_contents[message_protocol.internal.MsgField.DATA])
-        elif message[message_protocol.internal.MsgField.MSG_TYPE] == message_protocol.internal.MsgType.END_OF_RECODS:
-            self._process_eof(msg_contents[message_protocol.internal.MsgField.CLIENT_ID],*msg_contents[message_protocol.internal.MsgField.DATA])
+        # TO DO: AGREGAR TRY EXCEPT Y MANDAR NACK
+        msg = message_protocol.internal.deserialize(message)
+        msg_type = msg[message_protocol.internal.MsgField.MSG_TYPE]
+        msg_client = msg[message_protocol.internal.MsgField.CLIENT_ID]
+
+        if msg_type == message_protocol.internal.MsgType.FRUIT_RECORD:
+            self._process_data(msg_client ,*msg[message_protocol.internal.MsgField.DATA])
+        elif msg_type == message_protocol.internal.MsgType.END_OF_RECODS:
+            self._process_eof(msg_client)
+        else:
+            raise("Error llego cualquier cosa al Sum")
         ack()
 
     def start(self):

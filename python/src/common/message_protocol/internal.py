@@ -11,7 +11,36 @@ class MsgField:
     CLIENT_ID = 'client_id'
     DATA = 'data'
 
+# La funcion espera el registro de una fruta con la facha [ fruit_name , amount ]
+def serialize_fruit_register_message(client_id , fruit_register):
+    return serialize(
+        {
+            'msg_type': MsgType.FRUIT_RECORD,   
+            'client_id': client_id, 
+            'data': fruit_register
+        }
+    )
 
+def serialize_fruit_top(client_id,fruit_top):
+    return serialize(
+        {
+            'msg_type': MsgType.FRUIT_TOP,
+            'client_id': client_id,
+            'data': fruit_top
+        }
+    )
+
+def serialize_eof_message(client_id):
+    return serialize(
+        {
+            'msg_type': MsgType.END_OF_RECODS,
+            'client_id': client_id,
+            'data': []
+        }
+    )
+
+
+# Serializacion y Deserializacion de datos ------------
 def serialize(message):
     return json.dumps(message).encode("utf-8")
 

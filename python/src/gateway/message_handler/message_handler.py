@@ -4,26 +4,14 @@ import uuid
 class MessageHandler:
 
     def __init__(self):
-        self.client_uuid = uuid.uuid4()
+        self.client_uuid = uuid.uuid4().hex
     
     def serialize_data_message(self, message):
         [fruit, amount] = message
-        return message_protocol.internal.serialize(
-            {
-             'msg_type': message_protocol.internal.MsgType.END_OF_RECODS,   
-             'client_id': self.client_uuid, 
-             'data':[fruit, amount]
-            }
-        )
+        return message_protocol.internal.serialize_fruit_register_message(self.client_uuid ,[fruit, amount])
 
     def serialize_eof_message(self, message):
-        return message_protocol.internal.serialize(
-            {
-                'msg_type': message_protocol.internal.MsgType.END_OF_RECODS,
-                'client_id': self.client_uuid,
-                'data': []
-            }
-        )
+        return message_protocol.internal.serialize_eof_message(self.client_uuid)
 
     def deserialize_result_message(self, message):
         fields = message_protocol.internal.deserialize(message)

@@ -23,21 +23,29 @@ class AggregationFilter:
         self.output_queue = middleware.MessageMiddlewareQueueRabbitMQ(
             MOM_HOST, OUTPUT_QUEUE
         )
-        self.fruit_top = []
+        self.fruit_top = dict()
 
-    def _process_data(self, fruit, amount):
+    def _process_data(self, client_id, fruit, amount):
         logging.info("Processing data message")
-        for i in range(len(self.fruit_top)):
-            if self.fruit_top[i].fruit == fruit:
-                self.fruit_top[i] = self.fruit_top[i] + fruit_item.FruitItem(
+        self.fruit_top.setdefault(client_id, [])
+
+        for i in range(len(self.fruit_top[client_id])):
+            if self.fruit_top[client_id][i].fruit == fruit:
+                self.fruit_top[client_id][i] = self.fruit_top[client_id][i] + fruit_item.FruitItem(
                     fruit, amount
                 )
+                logging.info(f"Added: {amount} , from client: {client_id}, to fruit: {fruit}")
                 return
-        bisect.insort(self.fruit_top, fruit_item.FruitItem(fruit, amount))
+        logging.info(f"Added new fruit: {fruit}, from client: {client_id}")    
+        bisect.insort(self.fruit_top[client_id], fruit_item.FruitItem(fruit, amount))
 
-    def _process_eof(self):
+    def _process_eof(self, client_id):
         logging.info("Received EOF")
-        fruit_chunk = list(self.fruit_top[-TOP_SIZE:])
+        logging.info(f"estado de los registros del cliente {client_id}")    
+        for fitem in self.fruit_top[client_id]:
+            logging.info(f"fruta: {fitem.fruit} cantidad: {fitem.amount} cliente: {client_id}")    
+
+        fruit_chunk = list(self.fruit_top[client_id][-TOP_SIZE:])
         fruit_chunk.reverse()
         fruit_top = list(
             map(
@@ -45,17 +53,25 @@ class AggregationFilter:
                 fruit_chunk,
             )
         )
-        self.output_queue.send(message_protocol.internal.serialize(fruit_top))
-        self.fruit_top # que onda esto..................
+        logging.info(f"Top a enviar al cliente: {fruit_top}")    
+        self.output_queue.send(message_protocol.internal.serialize_fruit_top(client_id,fruit_top))
+        del self.fruit_top[client_id]
 
     def process_messsage(self, message, ack, nack):
         logging.info("Process message")
-        fields = message_protocol.internal.deserialize(message)
-        if len(fields) == 2:
-            self._process_data(*fields)
+        
+        msg = message_protocol.internal.deserialize(message)
+        msg_type = msg[message_protocol.internal.MsgField.MSG_TYPE]
+        msg_client = msg[message_protocol.internal.MsgField.CLIENT_ID]
+
+        if msg_type == message_protocol.internal.MsgType.FRUIT_RECORD:
+            self._process_data(msg_client ,*msg[message_protocol.internal.MsgField.DATA])
+        elif msg_type == message_protocol.internal.MsgType.END_OF_RECODS:
+            self._process_eof(msg_client)
         else:
-            self._process_eof()
+            raise("Error llego cualquier cosa al Agregation")
         ack()
+
 
     def start(self):
         self.input_exchange.start_consuming(self.process_messsage)
