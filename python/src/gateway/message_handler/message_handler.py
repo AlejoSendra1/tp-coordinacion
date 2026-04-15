@@ -1,5 +1,6 @@
 from common import message_protocol
 import uuid
+import logging
 
 class MessageHandler:
 
@@ -15,6 +16,10 @@ class MessageHandler:
 
     def deserialize_result_message(self, message):
         fields = message_protocol.internal.deserialize(message)
+
+
         if self.client_uuid != fields['client_id']:
             return None
+        
+        logging.info(f"resultado final: {fields['data']}")    
         return fields['data']

@@ -29,7 +29,7 @@ class SumFilter:
     def _process_data(self, client_id, fruit, amount):
         logging.info(f"Process data")
         self.amount_by_fruit.setdefault(client_id, dict())
-        self.amount_by_fruit[client_id][fruit] = self.amount_by_fruit.get(
+        self.amount_by_fruit[client_id][fruit] = self.amount_by_fruit[client_id].get(
             fruit, fruit_item.FruitItem(fruit, 0)
         ) + fruit_item.FruitItem(fruit, int(amount))
 
