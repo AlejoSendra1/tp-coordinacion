@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import json
 
 class MsgType:
@@ -10,32 +11,41 @@ class MsgField:
     MSG_TYPE = 'msg_type'
     CLIENT_ID = 'client_id'
     DATA = 'data'
+    TIMESTAMP = 'timestamp'
+    SENDER = 'sender'
+    PROPAGATE = 'propagate'
 
-# La funcion espera el registro de una fruta con la facha [ fruit_name , amount ]
-def serialize_fruit_register_message(client_id , fruit_register):
+def serialize_fruit_register_message(client_id , fruit_register, sender):
     return serialize(
         {
-            'msg_type': MsgType.FRUIT_RECORD,   
-            'client_id': client_id, 
-            'data': fruit_register
+            MsgField.MSG_TYPE: MsgType.FRUIT_RECORD,   
+            MsgField.CLIENT_ID: client_id, 
+            MsgField.DATA: fruit_register,
+            MsgField.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+            MsgField.SENDER: sender
         }
     )
 
-def serialize_fruit_top(client_id,fruit_top):
+def serialize_fruit_top(client_id,fruit_top, sender):
     return serialize(
         {
-            'msg_type': MsgType.FRUIT_TOP,
-            'client_id': client_id,
-            'data': fruit_top
+            MsgField.MSG_TYPE: MsgType.FRUIT_TOP,
+            MsgField.CLIENT_ID: client_id,
+            MsgField.DATA: fruit_top,
+            MsgField.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+            MsgField.SENDER: sender
         }
     )
 
-def serialize_eof_message(client_id):
+def serialize_eof_message(client_id, sender, propagate: bool): # agregar un default por si falta el sender para evitar harcodear el "getaway" en el handler
     return serialize(
         {
-            'msg_type': MsgType.END_OF_RECODS,
-            'client_id': client_id,
-            'data': []
+            MsgField.MSG_TYPE: MsgType.END_OF_RECODS,
+            MsgField.CLIENT_ID: client_id,
+            MsgField.DATA: [],
+            MsgField.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+            MsgField.SENDER: sender,
+            MsgField.PROPAGATE: propagate,
         }
     )
 

@@ -68,7 +68,7 @@ class MessageMiddlewareExchangeRabbitMQ(MessageMiddlewareExchange):
         channel = connection.channel()
 
         channel.exchange_declare(exchange=exchange_name,
-            exchange_type='direct') # si no existe, lo creo
+            exchange_type='topic') 
 
         self.exchange_name = exchange_name
         self.channel = channel

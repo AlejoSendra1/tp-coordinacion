@@ -64,6 +64,7 @@ class Client:
         if fruit_top_message[0] != message_protocol.external.MsgType.FRUIT_TOP:
             raise TypeError("Expected a FRUIT_TOP message")
 
+        logging.info(f"Fruit top received: {fruit_top_message[1]}")
         with open(output_file, "w") as csvfile:
             csv_writer = csv.writer(csvfile, delimiter=",", quotechar='"')
             for fruit_item in fruit_top_message[1]:
