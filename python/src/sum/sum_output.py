@@ -1,15 +1,13 @@
 import os
 import logging
-import threading
+import zlib
 
 from common import middleware, message_protocol
 
 ID = int(os.environ["ID"])
 MOM_HOST = os.environ["MOM_HOST"]
 INPUT_QUEUE = os.environ["INPUT_QUEUE"]
-SUM_AMOUNT = int(os.environ["SUM_AMOUNT"])
 SUM_PREFIX = os.environ["SUM_PREFIX"]
-SUM_CONTROL_EXCHANGE = "SUM_CONTROL_EXCHANGE"
 AGGREGATION_AMOUNT = int(os.environ["AGGREGATION_AMOUNT"])
 AGGREGATION_PREFIX = os.environ["AGGREGATION_PREFIX"]
 
@@ -19,31 +17,35 @@ class SumOutput:
         self.sum_eof_exchange = middleware.MessageMiddlewareExchangeRabbitMQ(
             MOM_HOST, SUM_PREFIX, [SUM_PREFIX]
         )
+        self.data_output_exchanges = dict()
 
-        self.data_output_exchanges = [] # no es mejor una working queue ?
-        
-        for _ in range(AGGREGATION_AMOUNT):
-            data_output_exchange = middleware.MessageMiddlewareExchangeRabbitMQ(
-                MOM_HOST, AGGREGATION_PREFIX, [AGGREGATION_PREFIX]
+        for id in range(AGGREGATION_AMOUNT):
+            self.data_output_exchanges[id] = middleware.MessageMiddlewareExchangeRabbitMQ(
+                MOM_HOST, AGGREGATION_PREFIX, [f'{id}']
             )
-            self.data_output_exchanges.append(data_output_exchange)
 
+         
     def send_fuits(self, client_id, final_fruit_item):
-        #logging.info(f"Broadcasting fruits message to aggregators")
-        for data_output_exchange in self.data_output_exchanges:
-                data_output_exchange.send(
-                    message_protocol.internal.serialize_fruit_register_message(
-                        client_id,
-                        [final_fruit_item.fruit, final_fruit_item.amount],
-                        self.instance_name
-                    )
-                )
+        aggretor_addr = get_aggregator_addr(client_id, final_fruit_item.fruit)
+        logging.info(f"fruta: {final_fruit_item.fruit} del cliente: {client_id} a enviarse al aggregation num: {aggretor_addr}")
+        self.data_output_exchanges[aggretor_addr].send(
+            message_protocol.internal.serialize_fruit_register_message(
+                client_id,
+                [final_fruit_item.fruit, final_fruit_item.amount],
+                self.instance_name
+            )
+        )
 
     def send_eof(self, client_id , must_propagate: bool):
         logging.info(f"Broadcasting EOF of client {client_id} message to aggregators")
-        for data_output_exchange in self.data_output_exchanges:
+        for data_output_exchange in self.data_output_exchanges.values():
             data_output_exchange.send(message_protocol.internal.serialize_eof_message(client_id, self.instance_name, True))
 
         if must_propagate:
             logging.info(f"Broadcasting EOF {client_id} message to sums from: {self.instance_name}")
             self.sum_eof_exchange.send(message_protocol.internal.serialize_eof_message(client_id, self.instance_name, False))
+
+def get_aggregator_addr(client_id, fruit_name):
+    hash_result = zlib.adler32(f"{client_id},{fruit_name}".encode())
+    logging.info(f'Agregation a recibir el msg: {hash_result % AGGREGATION_AMOUNT}')
+    return hash_result % AGGREGATION_AMOUNT

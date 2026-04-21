@@ -18,11 +18,8 @@ INSTANCE_NAME = f'{SUM_PREFIX}_{ID}'
 
 class SumFilter:
     def __init__(self):
-        logging.info("inicializando input")
         self.input = sum_input.SumInput(INSTANCE_NAME)
-        logging.info("inicializando output")
         self.output = sum_output.SumOutput(INSTANCE_NAME)
-
         self.amount_by_fruit = dict()
 
     def _process_data(self, client_id, fruit, amount):
@@ -31,9 +28,7 @@ class SumFilter:
         self.amount_by_fruit[client_id][fruit] = self.amount_by_fruit[client_id].get(
             fruit, fruit_item.FruitItem(fruit, 0)
         ) + fruit_item.FruitItem(fruit, int(amount))
-
         #logging.info(f"amount agregada al cliente: {client_id} estado actual de {fruit}: {self.amount_by_fruit[client_id][fruit].amount} ")    
-
 
     def _process_eof(self, client_id, must_propagate):
         logging.info(f"Broadcasting data messages")
