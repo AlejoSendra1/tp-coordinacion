@@ -42,8 +42,13 @@ class SumOutput:
             logging.info(f"Broadcasting EOF {client_id} message to sums from: {self.instance_name}")
             self.sum_eof_exchange.send(message_protocol.internal.serialize_eof_message(client_id, self.instance_name, False))
 
-    def graceful_shutdown():
-        pass
+    def graceful_shutdown(self):
+        self.sum_eof_exchange.stop_consuming()
+        self.sum_eof_exchange.close()
+
+        for _,exchange in self.data_output_exchanges.items():
+            exchange.stop_consuming()
+            exchange.close()
 
 def get_aggregator_addr(client_id: str, fruit_name: str):
     hash_result = zlib.adler32(f"{client_id},{fruit_name}".encode())

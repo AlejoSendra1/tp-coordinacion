@@ -15,6 +15,7 @@ SUM_PREFIX = os.environ["SUM_PREFIX"]
 SUM_CONTROL_EXCHANGE = "SUM_CONTROL_EXCHANGE"   # exchange for control btwn sum's
 RETRY_BASE_TIME = 2                             # used for exponential backoff must be bigger than 1
 PREFETCH_AMOUNT = 10
+THREAD_JOIN_TIMEOUT = 4
 
 
 class SumInput:
@@ -24,34 +25,34 @@ class SumInput:
         self.lock = threading.Lock()
         self.msg_heap = []
 
-        read_eof_exchange_thread = threading.Thread(target=self.read_eof_exchange, args=())
-        read_sum_queue_thread = threading.Thread(target=self.read_sum_queue, args=())
-        read_eof_exchange_thread.start()
-        read_sum_queue_thread.start()
+        self.read_eof_exchange_thread = threading.Thread(target=self.read_eof_exchange, args=())
+        self.read_sum_queue_thread = threading.Thread(target=self.read_sum_queue, args=())
 
+        self.read_eof_exchange_thread.start()
+        self.read_sum_queue_thread.start()
 
     def read_eof_exchange(self):
-        sum_eof_exchange = middleware.MessageMiddlewareExchangeRabbitMQ(
+        self.sum_eof_exchange = middleware.MessageMiddlewareExchangeRabbitMQ(
             MOM_HOST, SUM_PREFIX, [SUM_PREFIX]
         )
-        def handle_broadcast(message, ack, nack):  
+        def handle_eof(message, ack, nack):  
             try: 
                 msg = message_protocol.internal.deserialize(message)
                 if msg[message_protocol.internal.MsgField.SENDER] != self.instance_name:
                     with self.lock:
-                        logging.info("guardando en heap eof de cliente")
+                        logging.info("Pushing EOF msg into msg heap")
                         heappush(self.msg_heap,Msg_dto(msg))
                 ack()
             except Exception as e:
                 logging.error(f"Error processing message: {e}")
                 nack()            
-        sum_eof_exchange.start_consuming(handle_broadcast)
+        self.sum_eof_exchange.start_consuming(handle_eof)
 
     def start_consuming(self, process_msg):
         read_retry_time = RETRY_BASE_TIME
         heap_was_empty = False
 
-        while True: # MODIFICAR EL WHILE TRUE TODO
+        while True: 
             logging.info("Reading from msg heap")
             with self.lock:
                 if len(self.msg_heap) != 0:
@@ -66,19 +67,29 @@ class SumInput:
                 time.sleep(read_retry_time)
                 read_retry_time *= 2           
 
-    def graceful_shutdown():
-        pass
-    
-# no puedo tener todo en un hilo porq se complica el hecho de se dificulta vaciar una cola sin el callback invocado por cada 
+    def graceful_shutdown(self):
+        self.sum_eof_exchange.stop_consuming()
+        self.sum_eof_exchange.close()
+
+        self.input_queue.stop_consuming()
+        self.input_queue.close()
+
+        self.read_eof_exchange_thread.join(THREAD_JOIN_TIMEOUT)
+        self.read_sum_queue_thread.join(THREAD_JOIN_TIMEOUT)
+
     def read_sum_queue(self):
-        input_queue = middleware.MessageMiddlewareQueueRabbitMQ(
-            MOM_HOST, INPUT_QUEUE, PREFETCH_AMOUNT
+        # el prefetch asegura cierta cantidad de msg q seran guardados y sus tmstamps comparados antes de procesar un eof 
+        # de forma de evitar process eof antes del ultm mensaje 
+        # sin embargo en un caso (no este) donde la necesidad de computo sea muy intensa en cada msg esto podria generar 
+        # desaprovechamiento de las copias 
+        self.input_queue = middleware.MessageMiddlewareQueueRabbitMQ(
+            MOM_HOST, INPUT_QUEUE, PREFETCH_AMOUNT  
         )
 
         def callback (message, ack, nack):
             try: 
                 msg = message_protocol.internal.deserialize(message)
-                with self.lock:
+                with self.lock: # TODO esto no desaprovecha el gil?
                     logging.info("Pushing fruit register into msg heap")
                     heappush(self.msg_heap,Msg_dto(msg))
                 ack()
@@ -86,4 +97,4 @@ class SumInput:
                 logging.error(f"Error processing message: {e}")
                 nack()
         
-        input_queue.start_consuming(callback)
+        self.input_queue.start_consuming(callback)

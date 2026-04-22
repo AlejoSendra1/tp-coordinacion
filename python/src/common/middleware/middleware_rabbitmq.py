@@ -1,8 +1,7 @@
-import os
-import sys
+
 import pika
 import pika.exceptions as exceptions
-import string
+
 from .middleware import MessageMiddlewareCloseError, MessageMiddlewareDisconnectedError, MessageMiddlewareMessageError, MessageMiddlewareQueue, MessageMiddlewareExchange
 
 class MessageMiddlewareQueueRabbitMQ(MessageMiddlewareQueue):

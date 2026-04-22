@@ -1,5 +1,6 @@
 import os
 import logging
+import signal
 
 import sum_input
 import sum_output
@@ -15,6 +16,8 @@ class SumFilter:
         self.input = sum_input.SumInput(INSTANCE_NAME)
         self.output = sum_output.SumOutput(INSTANCE_NAME)
         self.amount_by_fruit = dict()
+
+        signal.signal(signal.SIGTERM, self.graceful_shutdown)
 
     def _process_fruit_record(self, client_id: str, fruit: str, amount: int) -> None:
         logging.info(f"Process fruit record")
