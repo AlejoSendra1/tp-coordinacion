@@ -40,7 +40,7 @@ class MessageMiddleware(ABC):
 
     # Envía un mensaje a la cola o al tópico con el que se inicializó el exchange.
     # Si se pierde la conexión con el middleware eleva MessageMiddlewareDisconnectedError.
-    # Si ocurre un error interno que no puede resolverse eleva MessageMiddlewareMessageError.
+    # Si ocurre un error interno que no puede resolverse eleva MessageMiddlewareMessageError.MessageMiddlewareDisconnectedError
     @abstractmethod
     def send(self, message):
         pass

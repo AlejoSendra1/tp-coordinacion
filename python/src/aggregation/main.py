@@ -41,9 +41,7 @@ class AggregationFilter:
         self.fruit_top[client_id].append(fruit_item.FruitItem(fruit, amount))
 
     def _process_eof(self, client_id, sender):
-        logging.info("Received EOF")
-        
-        logging.info(f"eof enviado por: {sender} del cliente: {client_id}")
+        logging.info(f"Client: {client_id} EOF sent by: {sender}")
         if self.eof_notifications.get(client_id,None) is None:
             self.eof_notifications[client_id] = set()
 
@@ -54,12 +52,6 @@ class AggregationFilter:
         self.fruit_top.setdefault(client_id, []) # en caso de que nunca haya procesado algo de ese cliente
         self.fruit_top[client_id].sort()
         fruit_chunk = list(self.fruit_top[client_id][-TOP_SIZE:])
-        
-        ## loggin de top
-        """logging.info(f'la lista final para el cliente es:')
-        for fitem in self.fruit_top[client_id]:
-            logging.info(f'registro: ({fitem.fruit},{fitem.amount})')"""
-        ####
 
         fruit_chunk.reverse()
         fruit_top = list(
@@ -69,11 +61,11 @@ class AggregationFilter:
             )
         )
         ###
-        logging.info(f"Top a enviar al cliente: {fruit_top}")    
+        logging.info(f"Partial top instance to send: {fruit_top}")    
         self.output_queue.send(message_protocol.internal.serialize_fruit_top(client_id,fruit_top,INSTANCE_NAME))
         self.output_queue.send(message_protocol.internal.serialize_eof_message(client_id,INSTANCE_NAME,False))
-        logging.info(f"Top enviado al cliente")    
-        ###
+
+        #se van liberando los recursos
         del self.fruit_top[client_id]
         del self.eof_notifications[client_id]
 

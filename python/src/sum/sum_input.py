@@ -6,17 +6,16 @@ from heapq import heappush,heappop
 import time
 from common import middleware, message_protocol
 from common.msg_dto import Msg_dto
+from common.utils import function_retry
 
-ID = int(os.environ["ID"])
 MOM_HOST = os.environ["MOM_HOST"]
 INPUT_QUEUE = os.environ["INPUT_QUEUE"]
-SUM_AMOUNT = int(os.environ["SUM_AMOUNT"])
 SUM_PREFIX = os.environ["SUM_PREFIX"]
-SUM_CONTROL_EXCHANGE = "SUM_CONTROL_EXCHANGE"
-AGGREGATION_AMOUNT = int(os.environ["AGGREGATION_AMOUNT"])
-AGGREGATION_PREFIX = os.environ["AGGREGATION_PREFIX"]
 
-RETRY_BASE_TIME = 2
+SUM_CONTROL_EXCHANGE = "SUM_CONTROL_EXCHANGE"   # exchange for control btwn sum's
+RETRY_BASE_TIME = 2                             # used for exponential backoff must be bigger than 1
+PREFETCH_AMOUNT = 10
+
 
 class SumInput:
     def __init__(self, instance_name):
@@ -25,23 +24,19 @@ class SumInput:
         self.lock = threading.Lock()
         self.msg_heap = []
 
-        logging.info("inicializando threads de input")
         read_eof_exchange_thread = threading.Thread(target=self.read_eof_exchange, args=())
         read_sum_queue_thread = threading.Thread(target=self.read_sum_queue, args=())
         read_eof_exchange_thread.start()
         read_sum_queue_thread.start()
-        logging.info("threads de input inicializados")
+
 
     def read_eof_exchange(self):
-
         sum_eof_exchange = middleware.MessageMiddlewareExchangeRabbitMQ(
             MOM_HOST, SUM_PREFIX, [SUM_PREFIX]
         )
-
         def handle_broadcast(message, ack, nack):  
             try: 
                 msg = message_protocol.internal.deserialize(message)
-
                 if msg[message_protocol.internal.MsgField.SENDER] != self.instance_name:
                     with self.lock:
                         logging.info("guardando en heap eof de cliente")
@@ -49,40 +44,42 @@ class SumInput:
                 ack()
             except Exception as e:
                 logging.error(f"Error processing message: {e}")
-                nack()
-            
+                nack()            
         sum_eof_exchange.start_consuming(handle_broadcast)
 
     def start_consuming(self, process_msg):
-        # consume con exponential backoff 
-        retry_time = RETRY_BASE_TIME
-
+        read_retry_time = RETRY_BASE_TIME
         heap_was_empty = False
+
         while True: # MODIFICAR EL WHILE TRUE TODO
-            logging.info("leyendo vamos a leer del heap")
+            logging.info("Reading from msg heap")
             with self.lock:
                 if len(self.msg_heap) != 0:
-                    process_msg(heappop(self.msg_heap).msg)
-                    retry_time = RETRY_BASE_TIME
+                    function_retry(process_msg, [heappop(self.msg_heap).msg])
+                    read_retry_time = RETRY_BASE_TIME
                     heap_was_empty = False
                 else:
                     heap_was_empty = True
-            if heap_was_empty:
-                logging.info("no hay nada en heap")
-                time.sleep(retry_time)
-                retry_time *= 2           
+
+            if heap_was_empty: # Exponential backoff
+                logging.info("Heap is empty")
+                time.sleep(read_retry_time)
+                read_retry_time *= 2           
+
+    def graceful_shutdown():
+        pass
     
 # no puedo tener todo en un hilo porq se complica el hecho de se dificulta vaciar una cola sin el callback invocado por cada 
     def read_sum_queue(self):
         input_queue = middleware.MessageMiddlewareQueueRabbitMQ(
-            MOM_HOST, INPUT_QUEUE
+            MOM_HOST, INPUT_QUEUE, PREFETCH_AMOUNT
         )
 
         def callback (message, ack, nack):
             try: 
                 msg = message_protocol.internal.deserialize(message)
                 with self.lock:
-                    logging.info("guardando en heap registro de frutas")
+                    logging.info("Pushing fruit register into msg heap")
                     heappush(self.msg_heap,Msg_dto(msg))
                 ack()
             except Exception as e:

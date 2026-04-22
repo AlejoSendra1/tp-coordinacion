@@ -7,7 +7,7 @@ from .middleware import MessageMiddlewareCloseError, MessageMiddlewareDisconnect
 
 class MessageMiddlewareQueueRabbitMQ(MessageMiddlewareQueue):
 
-    def __init__(self, host, queue_name):
+    def __init__(self, host, queue_name: str, prefetch_amount: int = None):
         connection = pika.BlockingConnection(pika.ConnectionParameters(host=host))
         channel = connection.channel()
         channel.queue_declare(queue=queue_name) 
@@ -15,6 +15,9 @@ class MessageMiddlewareQueueRabbitMQ(MessageMiddlewareQueue):
         self.queue_name = queue_name
         self.channel = channel
         self.connection = connection
+
+        if prefetch_amount is not None:
+            self.channel.basic_qos(prefetch_count=prefetch_amount)
 
     def send(self, message):
         try:
@@ -63,7 +66,7 @@ class MessageMiddlewareQueueRabbitMQ(MessageMiddlewareQueue):
     
 class MessageMiddlewareExchangeRabbitMQ(MessageMiddlewareExchange):
     
-    def __init__(self, host, exchange_name, routing_keys):
+    def __init__(self, host, exchange_name, routing_keys, prefetch_amount: int = None):
         connection = pika.BlockingConnection(pika.ConnectionParameters(host=host))
         channel = connection.channel()
 
@@ -74,6 +77,11 @@ class MessageMiddlewareExchangeRabbitMQ(MessageMiddlewareExchange):
         self.channel = channel
         self.connection = connection
         self.routing_keys = routing_keys      
+
+        if prefetch_amount is not None:
+            self.channel.basic_qos(prefetch_count=prefetch_amount)
+
+        
 
     def send(self, message):
         try:
