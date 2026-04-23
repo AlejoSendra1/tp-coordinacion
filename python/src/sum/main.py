@@ -17,8 +17,6 @@ class SumFilter:
         self.output = sum_output.SumOutput(INSTANCE_NAME)
         self.amount_by_fruit = dict()
 
-        signal.signal(signal.SIGTERM, self.graceful_shutdown)
-
     def _process_fruit_record(self, client_id: str, fruit: str, amount: int) -> None:
         logging.info(f"Process fruit record")
         self.amount_by_fruit.setdefault(client_id, dict())
@@ -60,11 +58,20 @@ class SumFilter:
         self.output.graceful_shutdown()
 
 def main():
-    logging.basicConfig(level=logging.INFO)
-    # agregar finally que cierre todo re clean
-    sum_filter = SumFilter()
-    sum_filter.start()
-    sum_filter.graceful_shutdown()
+    try:
+        logging.basicConfig(level=logging.INFO)
+        
+        sum_filter = SumFilter()
+        signal.signal(signal.SIGTERM, sum_filter.graceful_shutdown)
+
+        sum_filter.start()
+
+    except:
+        pass
+    
+    finally:
+        sum_filter.graceful_shutdown()
+
     return 0
 
 if __name__ == "__main__":
