@@ -3,6 +3,7 @@ import logging
 import signal
 
 from common import middleware, message_protocol, fruit_item
+from common.node.node import Node
 
 ID = int(os.environ["ID"])
 MOM_HOST = os.environ["MOM_HOST"]
@@ -13,7 +14,7 @@ TOP_SIZE = int(os.environ["TOP_SIZE"])
 
 INSTANCE_NAME = f'{AGGREGATION_PREFIX}_{ID}'
 
-class AggregationFilter: 
+class AggregationFilter(Node): 
 
     def __init__(self):
         self.fruit_top = dict()
@@ -25,33 +26,43 @@ class AggregationFilter:
         self.output_queue = middleware.MessageMiddlewareQueueRabbitMQ(
             MOM_HOST, OUTPUT_QUEUE
         )
-        
-        signal.signal(signal.SIGTERM, self.graceful_shutdown)
 
-    def _process_data(self, client_id, fruit, amount):
+    def _process_fruit_record(self, msg):
         logging.info("Processing data message")
-        self.fruit_top.setdefault(client_id, [])
 
-        for i in range(len(self.fruit_top[client_id])):
-            if self.fruit_top[client_id][i].fruit == fruit:
-                self.fruit_top[client_id][i] = self.fruit_top[client_id][i] + fruit_item.FruitItem(
+        msg_client_id = msg[message_protocol.internal.MsgField.CLIENT_ID]
+        fruit, amount = msg[message_protocol.internal.MsgField.DATA]
+
+        self.fruit_top.setdefault(msg_client_id, [])
+
+        for i in range(len(self.fruit_top[msg_client_id])):
+            if self.fruit_top[msg_client_id][i].fruit == fruit:
+                self.fruit_top[msg_client_id][i] = self.fruit_top[msg_client_id][i] + fruit_item.FruitItem(
                     fruit, amount
                 )
                 return
-        self.fruit_top[client_id].append(fruit_item.FruitItem(fruit, amount))
+        self.fruit_top[msg_client_id].append(fruit_item.FruitItem(fruit, amount))
 
-    def _process_eof(self, client_id, sender):
-        logging.info(f"Processing EOF msg of Client: {client_id} , sent by: {sender}")
-        if self.eof_notifications.get(client_id,None) is None:
-            self.eof_notifications[client_id] = set()
+    def _process_fruit_top(self, msg):
+        logging.error(f"Unexpected fruit top Type message received in aggregation node") 
 
-        self.eof_notifications[client_id].add(sender)
-        if len(self.eof_notifications[client_id]) < SUM_AMOUNT:
+    def _process_eof(self, msg):
+
+        msg_client_id = msg[message_protocol.internal.MsgField.CLIENT_ID]
+        sender = msg[message_protocol.internal.MsgField.SENDER]
+
+        logging.info(f"Processing EOF msg of Client: {msg_client_id} , sent by: {sender}")
+
+        if self.eof_notifications.get(msg_client_id,None) is None:
+            self.eof_notifications[msg_client_id] = set()
+
+        self.eof_notifications[msg_client_id].add(sender)
+        if len(self.eof_notifications[msg_client_id]) < SUM_AMOUNT:
             return
 
-        self.fruit_top.setdefault(client_id, []) # en caso de que nunca haya procesado algo de ese cliente
-        self.fruit_top[client_id].sort()
-        fruit_chunk = list(self.fruit_top[client_id][-TOP_SIZE:])
+        self.fruit_top.setdefault(msg_client_id, []) # en caso de que nunca haya procesado algo de ese cliente
+        self.fruit_top[msg_client_id].sort()
+        fruit_chunk = list(self.fruit_top[msg_client_id][-TOP_SIZE:])
 
         fruit_chunk.reverse()
         fruit_top = list(
@@ -62,35 +73,25 @@ class AggregationFilter:
         )
 
         logging.info(f"Partial top instance to send: {fruit_top}")    
-        self.output_queue.send(message_protocol.internal.serialize_fruit_top(client_id,fruit_top,INSTANCE_NAME))
-        self.output_queue.send(message_protocol.internal.serialize_eof_message(client_id,INSTANCE_NAME,False))
+        self.output_queue.send(message_protocol.internal.serialize_fruit_top(msg_client_id,fruit_top,INSTANCE_NAME))
+        self.output_queue.send(message_protocol.internal.serialize_eof_message(msg_client_id,INSTANCE_NAME,False))
 
         #se van liberando los recursos
-        del self.fruit_top[client_id]
-        del self.eof_notifications[client_id]
-
-    def process_messsage(self, message, ack, nack):
-        logging.info("Process message")
-        
-        msg = message_protocol.internal.deserialize(message)
-        msg_type = msg[message_protocol.internal.MsgField.MSG_TYPE]
-        msg_client = msg[message_protocol.internal.MsgField.CLIENT_ID]
-
-        if msg_type == message_protocol.internal.MsgType.FRUIT_RECORD:
-            self._process_data(msg_client ,*msg[message_protocol.internal.MsgField.DATA])
-        elif msg_type == message_protocol.internal.MsgType.END_OF_RECODS:
-            self._process_eof(msg_client, msg[message_protocol.internal.MsgField.SENDER])
-        else:
-            logging.error(f"Unexpected msg type received") 
-
-        ack()
-
+        del self.fruit_top[msg_client_id]
+        del self.eof_notifications[msg_client_id]
 
     def start(self):
-        self.input_exchange.start_consuming(self.process_messsage)
+        def callback (message, ack, nack):
+            try:
+                self.process_data_messsage(message)
+                ack()
+            except:
+                nack()
+
+        self.input_exchange.start_consuming(callback)
 
     def graceful_shutdown(self):
-        self.input_exchange.stop_cosuming()
+        self.input_exchange.stop_consuming()
         self.input_exchange.close()
 
         self.output_queue.close()
@@ -104,8 +105,8 @@ def main():
 
         aggregation_filter.start()
 
-    except:
-        pass
+    except Exception as e:
+        logging.exception(e)
 
     finally:
         aggregation_filter.graceful_shutdown()

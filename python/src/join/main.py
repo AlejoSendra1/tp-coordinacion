@@ -4,6 +4,7 @@ import logging
 import signal
 
 from common import middleware, message_protocol, fruit_item
+from common.node.node import Node
 
 MOM_HOST = os.environ["MOM_HOST"]
 INPUT_QUEUE = os.environ["INPUT_QUEUE"]
@@ -13,7 +14,7 @@ TOP_SIZE = int(os.environ["TOP_SIZE"])
 
 INSTANCE_NAME = 'Join'
 
-class JoinFilter:
+class JoinFilter(Node):
 
     def __init__(self):
         self.fruit_top = dict()
@@ -26,45 +27,39 @@ class JoinFilter:
             MOM_HOST, OUTPUT_QUEUE
         )
 
-        signal.signal(signal.SIGTERM, self.graceful_shutdown)
+    def _process_fruit_record(self, msg) -> None:
+        logging.error(f"Unexpected record Type message received in Join node") 
 
 
-    def process_messsage(self, message, ack, nack):
-        logging.info("Process message")
+    def _process_fruit_top(self, msg):
+
+        msg_client_id = msg[message_protocol.internal.MsgField.CLIENT_ID]
+        parcial_fruit_top = msg[message_protocol.internal.MsgField.DATA]
+
+        logging.info(f"Processing partial top msg of Client: {msg_client_id} partial top: {parcial_fruit_top}")
+
+        self.fruit_top.setdefault(msg_client_id,[])
+        for fruit in parcial_fruit_top:
+            fruit_name, amount = fruit
+            bisect.insort(self.fruit_top[msg_client_id], fruit_item.FruitItem(fruit_name, amount))
         
-        msg = message_protocol.internal.deserialize(message)
-        msg_type = msg[message_protocol.internal.MsgField.MSG_TYPE]
-        msg_client = msg[message_protocol.internal.MsgField.CLIENT_ID]
 
-        if msg_type == message_protocol.internal.MsgType.FRUIT_TOP:
-            self._process_fruit_top(msg_client , msg[message_protocol.internal.MsgField.DATA]) 
-        elif msg_type == message_protocol.internal.MsgType.END_OF_RECODS:
-            self._process_eof(msg_client, msg[message_protocol.internal.MsgField.SENDER])
-        else:
-            logging.error(f"Unexpected msg type received") 
-            
-        ack()
+    def _process_eof(self, msg):
 
-    def _process_fruit_top(self, client_id, fruit_top):
-        self.fruit_top.setdefault(client_id,[])
-        for fruit in fruit_top:
-            self._modify_partial_top(client_id,*fruit)
+        msg_client_id = msg[message_protocol.internal.MsgField.CLIENT_ID]
+        sender = msg[message_protocol.internal.MsgField.SENDER]
 
-    def _modify_partial_top(self, client_id, fruit_name, amount):
-        bisect.insort(self.fruit_top[client_id], fruit_item.FruitItem(fruit_name, amount))
+        logging.info(f"Processing EOF msg of Client: {msg_client_id} , sent by: {sender}")
 
-    def _process_eof(self,client_id, sender):
-        logging.info(f"Processing EOF msg of Client: {client_id} , sent by: {sender}")
+        if self.eof_notifications.get(msg_client_id,None) is None:
+            self.eof_notifications[msg_client_id] = set()
 
-        if self.eof_notifications.get(client_id,None) is None:
-            self.eof_notifications[client_id] = set()
-
-        self.eof_notifications[client_id].add(sender)
-        if len(self.eof_notifications[client_id]) < AGGREGATION_AMOUNT:
+        self.eof_notifications[msg_client_id].add(sender)
+        if len(self.eof_notifications[msg_client_id]) < AGGREGATION_AMOUNT:
             return
 
-        self.fruit_top.setdefault(client_id, []) # en caso de que nunca haya procesado algo de ese cliente
-        fruit_chunk = list(self.fruit_top[client_id][-TOP_SIZE:])
+        self.fruit_top.setdefault(msg_client_id, []) # en caso de que nunca haya procesado algo de ese cliente
+        fruit_chunk = list(self.fruit_top[msg_client_id][-TOP_SIZE:])
         fruit_chunk.reverse()
         fruit_top = list(
             map(
@@ -74,17 +69,23 @@ class JoinFilter:
         )
         ###
         logging.info(f"Top a enviar al cliente: {fruit_top}")    
-        self.output_queue.send(message_protocol.internal.serialize_fruit_top(client_id,fruit_top,INSTANCE_NAME))
+        self.output_queue.send(message_protocol.internal.serialize_fruit_top(msg_client_id,fruit_top,INSTANCE_NAME))
         
-        del self.fruit_top[client_id]
-        del self.eof_notifications[client_id]
+        del self.fruit_top[msg_client_id]
+        del self.eof_notifications[msg_client_id]
 
     def start(self):
-        self.input_queue.start_consuming(self.process_messsage)
+        def callback (message, ack, nack):
+            try:
+                self.process_data_messsage(message)
+                ack()
+            except:
+                nack()
+        self.input_queue.start_consuming(callback)
 
     def graceful_shutdown(self):
-        self.input_exchange.stop_cosuming()
-        self.input_exchange.close()
+        self.input_queue.stop_consuming()
+        self.input_queue.close()
 
         self.output_queue.close()
 
@@ -97,8 +98,8 @@ def main():
 
         join_filter.start()
 
-    except:
-        pass
+    except Exception as e:
+        logging.exception(e)
 
     finally:
         join_filter.graceful_shutdown()

@@ -56,7 +56,7 @@ class SumInput:
             logging.info("Reading from msg heap")
             with self.lock:
                 if len(self.msg_heap) != 0:
-                    function_retry(process_msg, [heappop(self.msg_heap).msg])
+                    function_retry(process_msg, [message_protocol.internal.serialize(heappop(self.msg_heap).msg)])
                     read_retry_time = RETRY_BASE_TIME
                     heap_was_empty = False
                 else:
